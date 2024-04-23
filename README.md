@@ -1,18 +1,24 @@
 # simli-next-js-demo
 
+Stream a radio broadcast from a local server using websockets, then read and process the audio on frontend
+
 ## Usage
 
-Install packages
-```bash
-npm install
-```
+### Terminal 1:
 
-In another terminal: open websocket server
+1. open websocket server
 ```bash
 py app.py
 ```
 
-Start
+### Terminal 2:
+Open another terminal
+1. Install packages
+```bash
+npm install
+```
+
+2. Start
 ```bash
 npm run dev
 ```
