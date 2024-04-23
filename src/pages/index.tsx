@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef, use } from "react";
 
-const MIN_DECODE_SIZE = 60000; // Define the minimum size for decoding
+const MIN_DECODE_SIZE = 50000; // Define your custom minimum size for decoding
 
 export default function Home() {
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
-  const [audioQueue, setAudioQueue] = useState<Array<AudioBuffer>>([]);
-  const [lastAudioDuration, setLastAudioDuration] = useState(0);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const accumulatedBuffer = useRef<Array<Uint8Array>>([]);
+  const [ws, setWs] = useState<WebSocket | null>(null); // WebSocket connection for audio data
+  const [audioContext, setAudioContext] = useState<AudioContext | null>(null); // AudioContest for decoding audio data
+  const [audioQueue, setAudioQueue] = useState<Array<AudioBuffer>>([]); // Queue for storing decoded audio data
+  const [lastAudioDuration, setLastAudioDuration] = useState(0); // Timestamp for the last audio played, used for scheduling
+  const [audioPlaying, setAudioPlaying] = useState(false); // State of playing audio
+  const accumulatedBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
 
   /* Create AudioContext at the start */
   useEffect(() => {
@@ -16,7 +16,7 @@ export default function Home() {
     setAudioContext(context);
   }, []);
 
-  /* Create WebSocket connection and listen for incoming data */
+  /* Create WebSocket connection and listen for incoming audio broadcast data */
   useEffect(() => {
     const ws = new WebSocket("ws://localhost:9000/audio");
     setWs(ws);
@@ -52,9 +52,6 @@ export default function Home() {
     } else {
     }
   }, [audioQueue, audioPlaying]);
-
-  /* Accumlate data to buffer */
-  const accumulateBuffer = (data: ArrayBuffer) => {};
 
   /* Decode ArrayBuffer data to Audio and push to audio queue */
   const updateAudioQueue = async (data: ArrayBuffer) => {
