@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, use } from "react";
 
-const MIN_DECODE_SIZE = 50000; // Define your custom minimum size for decoding
+const MIN_DECODE_SIZE = 60000; // Define your custom minimum size for decoding
 
 export default function Home() {
   const [ws, setWs] = useState<WebSocket | null>(null); // WebSocket connection for audio data
@@ -16,17 +16,16 @@ export default function Home() {
     setAudioContext(context);
   }, []);
 
-  /* Create WebSocket connection and listen for incoming audio broadcast data */
+  /* Create another websocket to echo data */
   useEffect(() => {
-    const ws = new WebSocket("ws://localhost:9000/audio");
-    setWs(ws);
-
-    ws.onopen = () => {
-      console.log("Connected to server");
+    const ws_echo = new WebSocket("ws://localhost:9000/echo");
+    setWs(ws_echo);
+    ws_echo.onopen = () => {
+      console.log("Connected to echo server");
     };
 
-    ws.onmessage = (event) => {
-      // console.log("Received data from server:", event.data);
+    ws_echo.onmessage = (event) => {
+      // console.log("Received data from echo server:", event.data);
 
       // Decode the incoming data as ArrayBuffer and push to audio queue
       const reader = new FileReader();
@@ -40,9 +39,31 @@ export default function Home() {
     };
 
     return () => {
-      ws.close();
+      ws_echo.close();
     };
   }, [audioContext]);
+
+  /* Create WebSocket connection and listen for incoming audio broadcast data */
+  useEffect(() => {
+    const ws_audio = new WebSocket("ws://localhost:9000/audio");
+
+    ws_audio.onopen = () => {
+      console.log("Connected to audio server");
+    };
+
+    ws_audio.onmessage = (event) => {
+      // console.log("Received data from server:", event.data);
+
+      // Wait for ws to OPEN and send a message to the server
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(event.data);
+      }
+    };
+
+    return () => {
+      ws_audio.close();
+    };
+  }, [audioContext, ws]);
 
   /* Keep listening to audio queue updates and play them */
   useEffect(() => {
@@ -50,15 +71,18 @@ export default function Home() {
     if (audioPlaying && audioQueue && audioQueue.length > 0) {
       playNextAudio();
     } else {
+      console.log("AudioQueue is empty or audio is not playing");
     }
   }, [audioQueue, audioPlaying]);
 
   /* Decode ArrayBuffer data to Audio and push to audio queue */
   const updateAudioQueue = async (data: ArrayBuffer) => {
+
     const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce(
       (total, array) => total + array.byteLength,
       0
     );
+
     if (accumulatedBufferTotalByteLength >= MIN_DECODE_SIZE) {
       // 1: Concatenate Uint8Arrays into a single Uint8Array
       const concatenatedData = new Uint8Array(accumulatedBufferTotalByteLength);
@@ -117,6 +141,16 @@ export default function Home() {
     );
   };
 
+  const handlePauseAudio = () => {
+    setAudioPlaying(false);
+    audioContext!.suspend();
+  };
+
+  const handleResumeAudio = () => {
+    setAudioPlaying(true);
+    audioContext!.resume();
+  };
+
   /* Test function to send data to websocket */
   // const handleSendData = () => {
   //   if (!ws) return;
@@ -133,7 +167,7 @@ export default function Home() {
       <div
         className="relative group hover:cursor-pointer"
         onClick={() => {
-          audioPlaying ? setAudioPlaying(false) : setAudioPlaying(true);
+          audioPlaying ? handlePauseAudio() : handleResumeAudio();
         }}
       >
         <div
@@ -146,9 +180,9 @@ export default function Home() {
       <div>
         <p>Audio Queue Length: {audioQueue.length}</p>
         <p>
-          State: {audioPlaying ? "Audio Scheduling" : "Audio Not Scheduling"}
+          State: {audioPlaying ? "Playing" : "Paused"}
         </p>
-      <p>currentTime: {audioContext && audioContext!.currentTime}</p>
+        <p>currentTime: {audioContext && audioContext!.currentTime}</p>
       </div>
 
       <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex"></div>
