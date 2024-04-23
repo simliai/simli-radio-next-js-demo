@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef, use } from "react";
 
+const MIN_DECODE_SIZE = 60000; // Define the minimum size for decoding
+
 export default function Home() {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [audioQueue, setAudioQueue] = useState<Array<AudioBuffer>>([]);
   const [lastAudioDuration, setLastAudioDuration] = useState(0);
   const [audioPlaying, setAudioPlaying] = useState(false);
+  const accumulatedBuffer = useRef<Array<Uint8Array>>([]);
 
   /* Create AudioContext at the start */
   useEffect(() => {
@@ -50,15 +53,55 @@ export default function Home() {
     }
   }, [audioQueue, audioPlaying]);
 
+  
+  let isBufferDetached = false; // Flag to track buffer detachment
+
+  let isAudioPlaying = false; // Flag to track audio playback
+
+
+  /* Accumlate data to buffer */
+  const accumulateBuffer = (data: ArrayBuffer) => {
+
+  };
+
   /* Decode ArrayBuffer data to Audio and push to audio queue */
   const updateAudioQueue = async (data: ArrayBuffer) => {
-    // console.log("Pushing data to audio queue:", data);
 
-    // TODO: decodeAudioData doesn't work well with small audio chunks or fragments
-    await audioContext!.decodeAudioData(data).then((audioData) => {
-      setAudioQueue((prevQueue) => [...prevQueue, audioData]);
-    });
+    const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce((total, array) => total + array.byteLength, 0);
+    if (accumulatedBufferTotalByteLength>= MIN_DECODE_SIZE) {
+
+      // 1: Concatenate Uint8Arrays into a single Uint8Array
+      const concatenatedData = new Uint8Array(accumulatedBufferTotalByteLength);
+      let offset = 0;
+      for (const array of accumulatedBuffer.current) {
+        concatenatedData.set(array, offset);
+        offset += array.byteLength;
+      }
+
+      // 2: Reset accumulated data buffer
+      accumulatedBuffer.current = [];
+
+      // 3: Decode concatenated data
+      const decodedAudioData = await audioContext!.decodeAudioData(concatenatedData.buffer);
+  
+      // 4: If audio is not currently playing, add the decoded audio data to the queue
+      if (!isAudioPlaying) {
+        setAudioQueue((prevQueue) => [...prevQueue, decodedAudioData]);
+      }
+
+    }else
+    {
+      // Accumulate received data
+      if (!accumulatedBuffer.current) {
+        accumulatedBuffer.current = [new Uint8Array(data)];
+      } else {
+        accumulatedBuffer.current.push(new Uint8Array(data));
+      }
+    }
   };
+  
+
+
 
   /* Schedule play audio in the queue */
   const playNextAudio = async () => {
