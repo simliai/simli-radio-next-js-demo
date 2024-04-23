@@ -20,7 +20,7 @@ async def stream_audio(websocket: WebSocket, url: str):
                 return
             while True:
                 try:
-                    data = await resp.content.read(1068)  #TODO: Chunk size below 3328 causes audio to audio decoder to break on frontend
+                    data = await resp.content.read(256)  #TODO: Chunk size below 3328 causes audio to audio decoder to break on frontend
                     logger.info(f"Sent {len(data)} bytes of audio data")
                     if not data:
                         break
@@ -34,7 +34,7 @@ async def audio_stream(websocket: WebSocket):
     logger.info("Audio WebSocket connection established")
     await websocket.accept()
     try:
-        await stream_audio(websocket, "https://radio.talksport.com/stream?gdpr=0&partnerId=RadioTime")
+        await stream_audio(websocket, "https://9090streaming.mobtada.com/9090FMEGYPT")
     except WebSocketDisconnect:
         logger.info("Audio WebSocket disconnected")
     except Exception as e:

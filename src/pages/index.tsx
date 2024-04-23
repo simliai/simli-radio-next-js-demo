@@ -53,23 +53,16 @@ export default function Home() {
     }
   }, [audioQueue, audioPlaying]);
 
-  
-  let isBufferDetached = false; // Flag to track buffer detachment
-
-  let isAudioPlaying = false; // Flag to track audio playback
-
-
   /* Accumlate data to buffer */
-  const accumulateBuffer = (data: ArrayBuffer) => {
-
-  };
+  const accumulateBuffer = (data: ArrayBuffer) => {};
 
   /* Decode ArrayBuffer data to Audio and push to audio queue */
   const updateAudioQueue = async (data: ArrayBuffer) => {
-
-    const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce((total, array) => total + array.byteLength, 0);
-    if (accumulatedBufferTotalByteLength>= MIN_DECODE_SIZE) {
-
+    const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce(
+      (total, array) => total + array.byteLength,
+      0
+    );
+    if (accumulatedBufferTotalByteLength >= MIN_DECODE_SIZE) {
       // 1: Concatenate Uint8Arrays into a single Uint8Array
       const concatenatedData = new Uint8Array(accumulatedBufferTotalByteLength);
       let offset = 0;
@@ -82,16 +75,14 @@ export default function Home() {
       accumulatedBuffer.current = [];
 
       // 3: Decode concatenated data
-      const decodedAudioData = await audioContext!.decodeAudioData(concatenatedData.buffer);
-  
-      // 4: If audio is not currently playing, add the decoded audio data to the queue
-      if (!isAudioPlaying) {
-        setAudioQueue((prevQueue) => [...prevQueue, decodedAudioData]);
-      }
+      const decodedAudioData = await audioContext!.decodeAudioData(
+        concatenatedData.buffer
+      );
 
-    }else
-    {
-      // Accumulate received data
+      // 4: Push decoded audio data to the queue
+      setAudioQueue((prevQueue) => [...prevQueue, decodedAudioData]);
+    } else {
+      // Else: Accumulate received data
       if (!accumulatedBuffer.current) {
         accumulatedBuffer.current = [new Uint8Array(data)];
       } else {
@@ -99,9 +90,6 @@ export default function Home() {
       }
     }
   };
-  
-
-
 
   /* Schedule play audio in the queue */
   const playNextAudio = async () => {
@@ -144,16 +132,13 @@ export default function Home() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24 font-mono">
-      <p>Hello</p>
+      <p>Click the button 👇</p>
       <div
         className="relative group hover:cursor-pointer"
         onClick={() => {
           audioPlaying ? setAudioPlaying(false) : setAudioPlaying(true);
         }}
       >
-        <p className="absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 z-10 text-center">
-          Audio Queue {audioQueue.length}
-        </p>
         <div
           className={
             "absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 w-[102px] h-[102px] rounded-full transition-all group-active:w-[50px] group-active:bg-white group-hover:opacity-80 " +
@@ -161,10 +146,13 @@ export default function Home() {
           }
         ></div>
       </div>
-      <p className="text-center">
-        {audioPlaying ? "Audio Scheduling" : "Audio Not Scheduling"}
-      </p>
-      <p>{audioContext && audioContext!.currentTime}</p>
+      <div>
+        <p>Audio Queue Length: {audioQueue.length}</p>
+        <p>
+          State: {audioPlaying ? "Audio Scheduling" : "Audio Not Scheduling"}
+        </p>
+      <p>currentTime: {audioContext && audioContext!.currentTime}</p>
+      </div>
 
       <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex"></div>
     </main>
