@@ -20,7 +20,7 @@ async def stream_audio(websocket: WebSocket, url: str):
                 return
             while True:
                 try:
-                    data = await resp.content.read(256) # custom bytes chunk size
+                    data = await resp.content.read(1068) # custom bytes chunk size
                     logger.info(f"Sent {len(data)} bytes of audio data")
                     if not data:
                         break
