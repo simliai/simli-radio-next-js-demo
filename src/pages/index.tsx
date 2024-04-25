@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, use } from "react";
 
-const MIN_DECODE_SIZE = 1068 * 30; // Define your custom minimum size for decoding
+//const MIN_DECODE_SIZE = 1068 * 30; // Define your custom minimum size for decoding
+const MIN_CHUNK_SIZE = 40; // Minimum chunk size for decoding
 
 interface ImageFrame {
   frameWidth: number;
@@ -19,7 +20,20 @@ export default function Home() {
   const frameQueue = useRef<Array<ImageFrame>>([]); // Queue for storing video data
   const lastFrameTimeRef = useRef(performance.now());
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const requestRef = useRef();
+  const requestRef = useRef<number>();
+
+  const currentChunkSize = useRef<number>(0); // Current chunk size for decoding
+
+  /* Main loop */
+  useEffect(() => {
+    if (playing) {
+      requestRef.current = requestAnimationFrame(processFrameQueue);
+    }
+
+    return () => {
+      cancelAnimationFrame(requestRef.current!);
+    };
+  }, [playing, currentChunkSize]);
 
   /* Create AudioContext at the start */
   useEffect(() => {
@@ -51,22 +65,19 @@ export default function Home() {
       // console.log("Received data arraybuffer from lipsync server:", event.data);
       processToVideoAudio(event.data);
 
-      if (playing) {
-      }
-      requestRef.current = requestAnimationFrame(processFrameQueue);
+      currentChunkSize.current += 1; // Increment chunk size by 1
 
       return () => {
         if (ws) {
           ws.close();
         }
-        cancelAnimationFrame(requestRef.current);
       };
     };
 
     return () => {
       ws_lipsync.close();
     };
-  }, [audioContext]);
+  }, [audioContext, currentChunkSize]);
 
   /* Create WebSocket connection and listen for incoming audio broadcast data */
   useEffect(() => {
@@ -147,39 +158,42 @@ export default function Home() {
     // --------------- LOGGING ----------------
 
     // Log Everything
-    console.log(
-      `${videoMessage}: ${imageData.byteLength}\n` +
-        `${audioMessage}: ${audioData.byteLength}\n` +
-        `endIndex: ${endIndex}`
-    );
-    console.warn("");
+    // console.log(
+    //   `${videoMessage}: ${imageData.byteLength}\n` +
+    //     `${audioMessage}: ${audioData.byteLength}\n` +
+    //     `endIndex: ${endIndex}`
+    // );
+    // console.warn("");
   };
 
   /* Play video from buffer */
   const processFrameQueue = () => {
     const now = performance.now();
     const timeSinceLastFrame = now - lastFrameTimeRef.current;
-    const msPerFrame = 1000 / 30; // Approximately 33.33 milliseconds per frame
+    const msPerFrame = 1000 / 30;
 
-    if (timeSinceLastFrame >= msPerFrame) {
-      if (frameQueue.current.length > 0) {
-        const { frameWidth, frameHeight, imageData } =
-          frameQueue.current.shift();
-        const blob = new Blob([imageData], { type: "image/jpeg" });
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = () => {
-          const canvas = canvasRef.current;
-          const ctx = canvas.getContext("2d");
-          canvas.width = frameWidth;
-          canvas.height = frameHeight;
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          URL.revokeObjectURL(url);
-        };
-        img.src = url;
-        lastFrameTimeRef.current = now;
-      }
+    if (timeSinceLastFrame < msPerFrame || frameQueue.current.length === 0) {
+      requestRef.current = requestAnimationFrame(processFrameQueue);
+      return;
     }
+
+    const { frameWidth, frameHeight, imageData } = frameQueue.current.shift();
+    const blob = new Blob([imageData], { type: "image/jpeg" });
+    const url = URL.createObjectURL(blob);
+
+    const img = new Image();
+    img.onload = () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas!.getContext("2d");
+      canvas!.width = frameWidth;
+      canvas!.height = frameHeight;
+      ctx!.drawImage(img, 0, 0, canvas!.width, canvas!.height);
+      URL.revokeObjectURL(url);
+    };
+
+    img.src = url;
+    lastFrameTimeRef.current = now;
+
     requestRef.current = requestAnimationFrame(processFrameQueue);
   };
 
@@ -190,18 +204,14 @@ export default function Home() {
 
   /* Decode ArrayBuffer data to Audio and push to audio queue */
   const updateAudioQueue = async (data: ArrayBuffer) => {
-    const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce(
-      (total, array) => total + array.byteLength,
-      0
-    );
-
-    console.log(
-      "Accumlated Buffer ByteLength:",
-      accumulatedBufferTotalByteLength
-    );
-
-    if (accumulatedBufferTotalByteLength >= MIN_DECODE_SIZE) {
+    console.log("Current Chunk Size:", currentChunkSize);
+    if (currentChunkSize.current >= MIN_CHUNK_SIZE) {
+      console.error("CHUNK SIZE REACHED", currentChunkSize);
       // 1: Concatenate Uint8Arrays into a single Uint8Array
+      const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce(
+        (total, array) => total + array.byteLength,
+        0
+      );
       const concatenatedData = new Uint8Array(accumulatedBufferTotalByteLength);
       let offset = 0;
       for (const array of accumulatedBuffer.current) {
@@ -226,6 +236,8 @@ export default function Home() {
 
       // 4: Push decoded audio data to the queue
       setAudioQueue((prevQueue) => [...prevQueue, decodedAudioData]);
+
+      currentChunkSize.current = 0; // Reset chunk size
     } else {
       // Else: Accumulate received data
       if (!accumulatedBuffer.current) {
@@ -244,7 +256,7 @@ export default function Home() {
     if (input.length % 2 !== 0) throw new Error("Input length must be even");
 
     const numSamples = input.length / 2;
-    const audioBuffer = audioContext.createBuffer(1, numSamples, 16000);
+    const audioBuffer = audioContext!.createBuffer(1, numSamples, 16000);
     const channelData = audioBuffer.getChannelData(0);
 
     for (let i = 0, j = 0; i < input.length; i += 2, j++) {
@@ -317,16 +329,6 @@ export default function Home() {
     audioContext!.resume();
   };
 
-  /* Test function to send data to websocket */
-  // const handleSendData = () => {
-  //   if (!ws) return;
-  //   const buffer = new ArrayBuffer(32000);
-  //   const view = new Uint8Array(buffer);
-  //   view.fill(4);
-  //   console.log("Sending data to server:", buffer);
-  //   ws.send(buffer);
-  // };
-
   return (
     <main className="flex min-h-screen flex-col items-center justify-between p-24 font-mono">
       <canvas
@@ -335,21 +337,19 @@ export default function Home() {
         height="512"
         style={{ border: "1px solid black" }}
       ></canvas>
-      <p>Click the button 👇</p>
-      <div
-        className="relative group hover:cursor-pointer"
+      <button
+        className={
+          "hover:opacity-75 text-white font-bold py-2 w-[300px] px-4 rounded" +
+          (playing ? " bg-red-500" : " bg-green-500")
+        }
         onClick={() => {
           playing ? handlePauseAudio() : handleResumeAudio();
         }}
       >
-        <div
-          className={
-            "absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 w-[102px] h-[102px] rounded-full transition-all group-active:w-[50px] group-active:bg-white group-hover:opacity-80 " +
-            (playing ? "bg-lime-700" : "bg-slate-500")
-          }
-        ></div>
-      </div>
+        {playing ? "Pause" : "Play"}
+      </button>
       <div>
+        <p>Chunk Size: {currentChunkSize.current}</p>
         <p>Frame Queue Length: {frameQueue.current.length}</p>
         <p>Audio Queue Length: {audioQueue.length}</p>
         <p>State: {playing ? "Playing" : "Paused"}</p>
