@@ -1,16 +1,22 @@
 import React, { useState, useEffect, useRef, use } from "react";
 
-const MIN_DECODE_SIZE = 60000; // Define your custom minimum size for decoding
+const MIN_DECODE_SIZE = 1068 * 30; // Define your custom minimum size for decoding
+
+interface ImageFrame {
+  frameWidth: number;
+  frameHeight: number;
+  imageData: Uint8Array;
+}
 
 export default function Home() {
   const [ws, setWs] = useState<WebSocket | null>(null); // WebSocket connection for audio data
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null); // AudioContest for decoding audio data
   const [audioQueue, setAudioQueue] = useState<Array<AudioBuffer>>([]); // Queue for storing decoded audio data
   const [lastAudioDuration, setLastAudioDuration] = useState(0); // Timestamp for the last audio played, used for scheduling
-  const [audioPlaying, setAudioPlaying] = useState(false); // State of playing audio
+  const [playing, setPlaying] = useState(false); // State of playing audio
   const accumulatedBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
 
-  const frameQueue = useRef([]);
+  const frameQueue = useRef<Array<ImageFrame>>([]); // Queue for storing video data
   const lastFrameTimeRef = useRef(performance.now());
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const requestRef = useRef();
@@ -24,38 +30,29 @@ export default function Home() {
   /* Connect with Lipsync stream */
   useEffect(() => {
     const ws_lipsync = new WebSocket("ws://34.91.9.107:8892/LipsyncStream");
+    ws_lipsync.binaryType = "arraybuffer";
     setWs(ws_lipsync);
 
     ws_lipsync.onopen = () => {
       console.log("Connected to lipsync server");
       const metadata = {
         video_reference_url:
-          "https://storage.googleapis.com/charactervideos/11c30c18-86c3-424e-bb29-9c6d1fd6003b/11c30c18-86c3-424e-bb29-9c6d1fd6003b.mp4",
+          "https://storage.googleapis.com/charactervideos/tmp9i8bbq7c/tmp9i8bbq7c.mp4",
         face_det_results:
-          "https://storage.googleapis.com/charactervideos/11c30c18-86c3-424e-bb29-9c6d1fd6003b/11c30c18-86c3-424e-bb29-9c6d1fd6003b.pkl",
+          "https://storage.googleapis.com/charactervideos/tmp9i8bbq7c/tmp9i8bbq7c.pkl",
         isSuperResolution: true,
         isJPG: true,
+        syncAudio: true,
       };
       ws_lipsync.send(JSON.stringify(metadata));
     };
 
     ws_lipsync.onmessage = (event) => {
-      console.log("Received data blob from lipsync server:", event.data);
+      // console.log("Received data arraybuffer from lipsync server:", event.data);
       processToVideoAudio(event.data);
 
-      /*
-      // <------------------ OLD ------------------>
-      // Decode the incoming data as ArrayBuffer and push to audio queue
-      // const reader = new FileReader();
-      // reader.onload = () => {
-      //   const data = reader.result as ArrayBuffer;
-      //   if (audioContext) {
-      //     processToVideoAudio(data);
-      //   }
-      // };
-      // reader.readAsArrayBuffer(event.data);
-      // <------------------ OLD ------------------/>
-      */
+      if (playing) {
+      }
       requestRef.current = requestAnimationFrame(processFrameQueue);
 
       return () => {
@@ -74,6 +71,7 @@ export default function Home() {
   /* Create WebSocket connection and listen for incoming audio broadcast data */
   useEffect(() => {
     const ws_audio = new WebSocket("ws://localhost:9000/audio");
+    ws_audio.binaryType = "arraybuffer";
 
     ws_audio.onopen = () => {
       console.log("Connected to audio server");
@@ -81,7 +79,7 @@ export default function Home() {
 
     ws_audio.onmessage = (event) => {
       // console.log("Received data from server:", event.data);
-      
+
       // Wait for ws to OPEN and send a message to the server
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(event.data);
@@ -97,83 +95,64 @@ export default function Home() {
   /* Keep listening to audio queue updates and play them */
   useEffect(() => {
     // console.log("AudioQueue:", audioQueue.length);
-    if (audioPlaying && audioQueue && audioQueue.length > 0) {
+    if (playing && audioQueue && audioQueue.length > 0) {
       playNextAudio();
     } else {
       console.log("AudioQueue is empty or audio is not playing");
     }
-  }, [audioQueue, audioPlaying]);
+  }, [audioQueue, playing]);
 
   /* Process Data Bytes to Audio and Video */
-  const processToVideoAudio = async (dataBlob: Blob) => {
-    const arrayBuffer = await dataBlob.arrayBuffer();
-    const data = new Uint8Array(arrayBuffer);
+  const processToVideoAudio = async (dataArrayBuffer: ArrayBuffer) => {
+    let data = new Uint8Array(dataArrayBuffer);
 
     // Extracting the endIndex from the message
     const endIndex = new DataView(data.buffer.slice(5, 9)).getUint32(0, true);
-    console.log("endIndex:", endIndex);
+
+    // --------------- VIDEO DATA ----------------
+
+    // Print first 5 bytes of the message as string
+    const videoMessage = new TextDecoder().decode(data.slice(0, 5));
 
     // Extracting frame metadata
-    const frameIndex = new DataView(data.buffer.slice(0, 4)).getUint32(0, true);
-    const frameWidth = new DataView(data.buffer.slice(4, 8)).getUint32(0, true);
-    const frameHeight = new DataView(data.buffer.slice(8, 12)).getUint32(
+    const frameIndex = new DataView(data.buffer.slice(0 + 9, 4 + 9)).getUint32(
       0,
       true
     );
-    const imageData = data.subarray(12); // The rest is image data
-    console.log("WebSocket Image data length:", imageData.byteLength);
-    
-    // Extract Audio data
-    const audioData = data.subarray(18 + endIndex);
-    console.log("WebSocket Audio data length:", audioData.byteLength);
-    
+    const frameWidth = new DataView(data.buffer.slice(4 + 9, 8 + 9)).getUint32(
+      0,
+      true
+    );
+    const frameHeight = new DataView(
+      data.buffer.slice(8 + 9, 12 + 9)
+    ).getUint32(0, true);
+    const imageData = data.subarray(12 + 9, endIndex + 9); // The rest is image data
+
     // Push image data to frame queue
-    frameQueue.current.push({ frameWidth, frameHeight, imageData });
+    const imageFrame: ImageFrame = { frameWidth, frameHeight, imageData };
+    updateFrameQueue(imageFrame);
 
-    // TODO: Push audio data to audio queue
-    // updateAudioQueue(audioData);
+    // --------------- AUDIO DATA ----------------
 
+    const audioMessage = new TextDecoder().decode(
+      data.slice(endIndex + 9, endIndex + 14)
+    );
+
+    // Extract Audio data
+    const audioData = data.subarray(endIndex + 18);
+
+    // Push audio data to audio queue
+    updateAudioQueue(audioData);
+
+    // --------------- LOGGING ----------------
+
+    // Log Everything
+    console.log(
+      `${videoMessage}: ${imageData.byteLength}\n` +
+        `${audioMessage}: ${audioData.byteLength}\n` +
+        `endIndex: ${endIndex}`
+    );
     console.warn("");
-    /*
-    try {
-      console.log("Data length:", data.length);
-
-      // Extracting the endIndex from the message
-      const endIndex = new DataView(data.buffer.slice(5, 9)).getUint32(0, true); //True if little-endian, false if big-endian
-      console.log("endIndex", endIndex);
-
-      // Extracting the video data
-      const video = data.buffer.slice(9, endIndex);
-
-      // Extracting frame metadata
-      const frameIndex = new DataView(
-        data.buffer.slice(0 + 9, 4 + 9)
-      ).getUint32(0, true);
-      const frameWidth = new DataView(
-        data.buffer.slice(4 + 9, 8 + 9)
-      ).getUint32(0, true);
-      const frameHeight = new DataView(
-        data.buffer.slice(8 + 9, 12 + 9)
-      ).getUint32(0, true);
-
-      // Extracting image data
-      const imageData = data.subarray(12 + 9, endIndex + 9);
-      console.log("WebSocket Image data length:", imageData.byteLength);
-
-      // Extract Audio data
-      const audioData = data.subarray(18 + endIndex);
-      console.log("WebSocket Audio data length:", audioData.byteLength);
-
-      // Decode the incoming data as ArrayBuffer and push to audio queue
-      // updateAudioQueue(audioData);
-
-      // Pushing the frame data into a queue
-      // frameQueue.current.push({ frameWidth, frameHeight, imageData });
-      console.warn("");
-    } catch (e) {
-      console.error(e);
-    }
-    */
   };
 
   /* Play video from buffer */
@@ -204,11 +183,21 @@ export default function Home() {
     requestRef.current = requestAnimationFrame(processFrameQueue);
   };
 
+  /* Update video queue */
+  const updateFrameQueue = (imageFrame: ImageFrame) => {
+    frameQueue.current.push(imageFrame);
+  };
+
   /* Decode ArrayBuffer data to Audio and push to audio queue */
   const updateAudioQueue = async (data: ArrayBuffer) => {
     const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce(
       (total, array) => total + array.byteLength,
       0
+    );
+
+    console.log(
+      "Accumlated Buffer ByteLength:",
+      accumulatedBufferTotalByteLength
     );
 
     if (accumulatedBufferTotalByteLength >= MIN_DECODE_SIZE) {
@@ -223,10 +212,17 @@ export default function Home() {
       // 2: Reset accumulated data buffer
       accumulatedBuffer.current = [];
 
-      // 3: Decode concatenated data
-      const decodedAudioData = await audioContext!.decodeAudioData(
-        concatenatedData.buffer
+      // 3: Decode concatenated data as PCM16 audio
+      const decodedAudioData = await createAudioBufferFromPCM16(
+        concatenatedData
       );
+
+      /* ------------------ OLD ------------------ */
+      // // 3: Decode concatenated data as MP3 audio
+      // const decodedAudioData = await audioContext!.decodeAudioData(
+      //   concatenatedData.buffer
+      // );
+      /* ------------------ OLD ------------------ */
 
       // 4: Push decoded audio data to the queue
       setAudioQueue((prevQueue) => [...prevQueue, decodedAudioData]);
@@ -240,12 +236,54 @@ export default function Home() {
     }
   };
 
+  /* Helper function to decode ArrayBuffer as PCM16 */
+  async function createAudioBufferFromPCM16(
+    input: Uint8Array
+  ): Promise<AudioBuffer> {
+    // Ensure the input byte length is even
+    if (input.length % 2 !== 0) throw new Error("Input length must be even");
+
+    const numSamples = input.length / 2;
+    const audioBuffer = audioContext.createBuffer(1, numSamples, 16000);
+    const channelData = audioBuffer.getChannelData(0);
+
+    for (let i = 0, j = 0; i < input.length; i += 2, j++) {
+      // Little-endian byte order
+      let int16 = (input[i + 1] << 8) | input[i];
+      // Convert from uint16 to int16
+      if (int16 >= 0x8000) int16 |= ~0xffff;
+      // Normalize to range -1.0 to 1.0
+      channelData[j] = int16 / 32768.0;
+    }
+
+    return audioBuffer;
+  }
+
+  /* ------------------ OLD ------------------ */
+  // /* Helper function to decode ArrayBuffer as PCM16 */
+  // const decodeAudioDataAsPCM16 = (buffer: Uint8Array): Promise<AudioBuffer> => {
+  //   return new Promise((resolve, reject) => {
+  //     if (!audioContext) {
+  //       reject(new Error("AudioContext is not available."));
+  //       return;
+  //     }
+
+  //     const audioBuffer = audioContext.createBuffer(1, buffer.length, 16000);
+  //     audioBuffer.getChannelData(0).set(buffer);
+
+  //     console.warn("Decoded audio data as PCM16");
+  //     resolve(audioBuffer);
+  //   });
+  // };
+  /* ------------------ OLD ------------------ */
+
   /* Schedule play audio in the queue */
   const playNextAudio = async () => {
-    const audioData = audioQueue.shift();
-    if (!audioData) return;
+    const audioBuffer = audioQueue.shift();
+    if (!audioBuffer) return;
+
     const source = audioContext!.createBufferSource();
-    source.buffer = audioData;
+    source.buffer = audioBuffer;
     source.connect(audioContext!.destination);
 
     // Calculate the scheduled time using performance.now()
@@ -258,24 +296,24 @@ export default function Home() {
     source.start(scheduledTime);
 
     // Update timestamp for the next audio
-    setLastAudioDuration((prev) => prev + audioData!.duration);
+    setLastAudioDuration((prev) => prev + audioBuffer!.duration);
 
     console.log(
       `Playing next audio: CurrentTime: ${currentTime.toFixed(
         2
-      )}  AudioDuration: ${audioData!.duration.toFixed(
+      )}  AudioDuration: ${audioBuffer!.duration.toFixed(
         2
       )} ScheduledTime ${scheduledTime.toFixed(2)}`
     );
   };
 
   const handlePauseAudio = () => {
-    setAudioPlaying(false);
+    setPlaying(false);
     audioContext!.suspend();
   };
 
   const handleResumeAudio = () => {
-    setAudioPlaying(true);
+    setPlaying(true);
     audioContext!.resume();
   };
 
@@ -301,19 +339,20 @@ export default function Home() {
       <div
         className="relative group hover:cursor-pointer"
         onClick={() => {
-          audioPlaying ? handlePauseAudio() : handleResumeAudio();
+          playing ? handlePauseAudio() : handleResumeAudio();
         }}
       >
         <div
           className={
             "absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 w-[102px] h-[102px] rounded-full transition-all group-active:w-[50px] group-active:bg-white group-hover:opacity-80 " +
-            (audioPlaying ? "bg-lime-700" : "bg-slate-500")
+            (playing ? "bg-lime-700" : "bg-slate-500")
           }
         ></div>
       </div>
       <div>
+        <p>Frame Queue Length: {frameQueue.current.length}</p>
         <p>Audio Queue Length: {audioQueue.length}</p>
-        <p>State: {audioPlaying ? "Playing" : "Paused"}</p>
+        <p>State: {playing ? "Playing" : "Paused"}</p>
         <p>
           currentTime: {audioContext && audioContext!.currentTime.toFixed(2)}
         </p>
