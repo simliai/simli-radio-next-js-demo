@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef, use } from "react";
 
-//const MIN_DECODE_SIZE = 1068 * 30; // Define your custom minimum size for decoding
-const MIN_CHUNK_SIZE = 40; // Minimum chunk size for decoding
+// Minimum chunk size for decoding,
+// Higher chunk size will result in longer delay but smoother playback
+// ( 1 chunk = 0.03 seconds )
+// ( 30 chunks = 0.9 seconds )
+const MIN_CHUNK_SIZE = 20;
 
 interface ImageFrame {
   frameWidth: number;
@@ -15,30 +18,49 @@ export default function Home() {
   const [audioQueue, setAudioQueue] = useState<Array<AudioBuffer>>([]); // Queue for storing decoded audio data
   const [lastAudioDuration, setLastAudioDuration] = useState(0); // Timestamp for the last audio played, used for scheduling
   const [playing, setPlaying] = useState(false); // State of playing audio
-  const accumulatedBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
+  const accumulatedAudioBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
 
-  const frameQueue = useRef<Array<ImageFrame>>([]); // Queue for storing video data
-  const lastFrameTimeRef = useRef(performance.now());
+  const frameQueue = useRef<Array<Array<ImageFrame>>>([]); // Queue for storing video data
+  const accumulatedFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
+  const currentFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [videoContext, setVideoContext] =
+    useState<CanvasRenderingContext2D | null>(null);
+  const currentFrame = useRef(0);
+  const fps = 29;
+  const frameInterval = 1000 / fps; // Calculate the time between frames in milliseconds
+
+  const lastFrameTimeRef = useRef(performance.now());
   const requestRef = useRef<number>();
 
   const currentChunkSize = useRef<number>(0); // Current chunk size for decoding
 
   /* Main loop */
+  // TODO: playback on useEffect is not getting called accurately
   useEffect(() => {
-    if (playing) {
-      requestRef.current = requestAnimationFrame(processFrameQueue);
+    if (playing && audioQueue.length > 0 && frameQueue.current.length > 0) {
+      // requestRef.current = requestAnimationFrame(playFrameQueue);
+      currentFrameBuffer.current = frameQueue.current.shift();
+      drawFrame();
+      playAudioQueue();
     }
 
     return () => {
       cancelAnimationFrame(requestRef.current!);
     };
-  }, [playing, currentChunkSize]);
+  }, [playing, currentChunkSize.current]);
 
   /* Create AudioContext at the start */
   useEffect(() => {
-    const context = new AudioContext();
-    setAudioContext(context);
+    // Initialize AudioContext
+    const newAudioContext = new AudioContext();
+    setAudioContext(newAudioContext);
+
+    // Intialize VideoContext
+    const videoCanvas = canvasRef.current;
+    if (videoCanvas) {
+      setVideoContext(videoCanvas?.getContext("2d"));
+    }
   }, []);
 
   /* Connect with Lipsync stream */
@@ -77,7 +99,7 @@ export default function Home() {
     return () => {
       ws_lipsync.close();
     };
-  }, [audioContext, currentChunkSize]);
+  }, [audioContext, currentChunkSize.current]);
 
   /* Create WebSocket connection and listen for incoming audio broadcast data */
   useEffect(() => {
@@ -104,14 +126,14 @@ export default function Home() {
   }, [audioContext, ws]);
 
   /* Keep listening to audio queue updates and play them */
-  useEffect(() => {
-    // console.log("AudioQueue:", audioQueue.length);
-    if (playing && audioQueue && audioQueue.length > 0) {
-      playNextAudio();
-    } else {
-      console.log("AudioQueue is empty or audio is not playing");
-    }
-  }, [audioQueue, playing]);
+  // useEffect(() => {
+  //   // console.log("AudioQueue:", audioQueue.length);
+  //   if (playing && audioQueue && audioQueue.length > 0) {
+  //     playAudioQueue();
+  //   } else {
+  //     console.log("AudioQueue is empty or audio is not playing");
+  //   }
+  // }, [audioQueue, playing]);
 
   /* Process Data Bytes to Audio and Video */
   const processToVideoAudio = async (dataArrayBuffer: ArrayBuffer) => {
@@ -166,40 +188,73 @@ export default function Home() {
     // console.warn("");
   };
 
-  /* Play video from buffer */
-  const processFrameQueue = () => {
-    const now = performance.now();
-    const timeSinceLastFrame = now - lastFrameTimeRef.current;
-    const msPerFrame = 1000 / 30;
-
-    if (timeSinceLastFrame < msPerFrame || frameQueue.current.length === 0) {
-      requestRef.current = requestAnimationFrame(processFrameQueue);
+  function drawFrame() {
+    if (currentFrame.current >= currentFrameBuffer.current.length) {
+      // currentFrame = 0; // Loop the video
       return;
     }
 
-    const { frameWidth, frameHeight, imageData } = frameQueue.current.shift();
-    const blob = new Blob([imageData], { type: "image/jpeg" });
+    const arrayBuffer =
+      currentFrameBuffer.current[currentFrame.current].imageData;
+    const width = currentFrameBuffer.current[currentFrame.current].frameWidth;
+    const height = currentFrameBuffer.current[currentFrame.current].frameHeight;
+
+    const blob = new Blob([arrayBuffer]); // Convert ArrayBuffer to Blob
     const url = URL.createObjectURL(blob);
 
-    const img = new Image();
-    img.onload = () => {
-      const canvas = canvasRef.current;
-      const ctx = canvas!.getContext("2d");
-      canvas!.width = frameWidth;
-      canvas!.height = frameHeight;
-      ctx!.drawImage(img, 0, 0, canvas!.width, canvas!.height);
-      URL.revokeObjectURL(url);
+    const image = new Image();
+    image.onload = () => {
+      videoContext?.clearRect(0, 0, width, height);
+      videoContext?.drawImage(image, 0, 0, width, height);
+      URL.revokeObjectURL(url); // Clean up memory after drawing the image
     };
+    image.src = url;
 
-    img.src = url;
-    lastFrameTimeRef.current = now;
+    currentFrame.current++;
+    setTimeout(drawFrame, frameInterval); // Set the next frame draw
+  }
 
-    requestRef.current = requestAnimationFrame(processFrameQueue);
-  };
+  /* Play video from buffer */
+  /* ------------------- OLD ------------------- */
+  // const playFrameQueue = () => {
+  //   const now = performance.now();
+  //   const timeSinceLastFrame = now - lastFrameTimeRef.current;
+  //   const msPerFrame = 1000 / 30;
+
+  //   if (timeSinceLastFrame < msPerFrame || frameQueue.current.length === 0) {
+  //     requestRef.current = requestAnimationFrame(playFrameQueue);
+  //     return;
+  //   }
+
+  //   const { frameWidth, frameHeight, imageData } = frameQueue.current.shift();
+  //   const blob = new Blob([imageData], { type: "image/jpeg" });
+  //   const url = URL.createObjectURL(blob);
+
+  //   const img = new Image();
+  //   img.onload = () => {
+  //     const canvas = canvasRef.current;
+  //     const ctx = canvas!.getContext("2d");
+  //     canvas!.width = frameWidth;
+  //     canvas!.height = frameHeight;
+  //     ctx!.drawImage(img, 0, 0, canvas!.width, canvas!.height);
+  //     URL.revokeObjectURL(url);
+  //   };
+
+  //   img.src = url;
+  //   lastFrameTimeRef.current = now;
+
+  //   requestRef.current = requestAnimationFrame(playFrameQueue);
+  // };
+  /* ------------------- OLD ------------------- */
 
   /* Update video queue */
   const updateFrameQueue = (imageFrame: ImageFrame) => {
-    frameQueue.current.push(imageFrame);
+    if (currentChunkSize.current >= MIN_CHUNK_SIZE) {
+      frameQueue.current.push(accumulatedFrameBuffer.current);
+      accumulatedFrameBuffer.current = [];
+    } else {
+      accumulatedFrameBuffer.current.push(imageFrame);
+    }
   };
 
   /* Decode ArrayBuffer data to Audio and push to audio queue */
@@ -208,31 +263,27 @@ export default function Home() {
     if (currentChunkSize.current >= MIN_CHUNK_SIZE) {
       console.error("CHUNK SIZE REACHED", currentChunkSize);
       // 1: Concatenate Uint8Arrays into a single Uint8Array
-      const accumulatedBufferTotalByteLength = accumulatedBuffer.current.reduce(
-        (total, array) => total + array.byteLength,
-        0
+      const accumulatedAudioBufferTotalByteLength =
+        accumulatedAudioBuffer.current.reduce(
+          (total, array) => total + array.byteLength,
+          0
+        );
+      const concatenatedData = new Uint8Array(
+        accumulatedAudioBufferTotalByteLength
       );
-      const concatenatedData = new Uint8Array(accumulatedBufferTotalByteLength);
       let offset = 0;
-      for (const array of accumulatedBuffer.current) {
+      for (const array of accumulatedAudioBuffer.current) {
         concatenatedData.set(array, offset);
         offset += array.byteLength;
       }
 
       // 2: Reset accumulated data buffer
-      accumulatedBuffer.current = [];
+      accumulatedAudioBuffer.current = [];
 
       // 3: Decode concatenated data as PCM16 audio
       const decodedAudioData = await createAudioBufferFromPCM16(
         concatenatedData
       );
-
-      /* ------------------ OLD ------------------ */
-      // // 3: Decode concatenated data as MP3 audio
-      // const decodedAudioData = await audioContext!.decodeAudioData(
-      //   concatenatedData.buffer
-      // );
-      /* ------------------ OLD ------------------ */
 
       // 4: Push decoded audio data to the queue
       setAudioQueue((prevQueue) => [...prevQueue, decodedAudioData]);
@@ -240,10 +291,10 @@ export default function Home() {
       currentChunkSize.current = 0; // Reset chunk size
     } else {
       // Else: Accumulate received data
-      if (!accumulatedBuffer.current) {
-        accumulatedBuffer.current = [new Uint8Array(data)];
+      if (!accumulatedAudioBuffer.current) {
+        accumulatedAudioBuffer.current = [new Uint8Array(data)];
       } else {
-        accumulatedBuffer.current.push(new Uint8Array(data));
+        accumulatedAudioBuffer.current.push(new Uint8Array(data));
       }
     }
   };
@@ -290,7 +341,7 @@ export default function Home() {
   /* ------------------ OLD ------------------ */
 
   /* Schedule play audio in the queue */
-  const playNextAudio = async () => {
+  const playAudioQueue = async () => {
     const audioBuffer = audioQueue.shift();
     if (!audioBuffer) return;
 
@@ -305,7 +356,7 @@ export default function Home() {
     const scheduledTime = delay;
 
     // Schedule playback at the correct time
-    source.start(scheduledTime);
+    source.start(0);
 
     // Update timestamp for the next audio
     setLastAudioDuration((prev) => prev + audioBuffer!.duration);
@@ -349,13 +400,11 @@ export default function Home() {
         {playing ? "Pause" : "Play"}
       </button>
       <div>
-        <p>Chunk Size: {currentChunkSize.current}</p>
+        <p>Chunk size: {currentChunkSize.current}</p>
         <p>Frame Queue Length: {frameQueue.current.length}</p>
         <p>Audio Queue Length: {audioQueue.length}</p>
-        <p>State: {playing ? "Playing" : "Paused"}</p>
-        <p>
-          currentTime: {audioContext && audioContext!.currentTime.toFixed(2)}
-        </p>
+        <br />
+        <p>Playback Delay: {(MIN_CHUNK_SIZE * 0.03).toFixed(2)} seconds</p>
       </div>
 
       <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex"></div>
