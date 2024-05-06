@@ -6,7 +6,12 @@ Stream a radio broadcast from a local server using websockets, then read and pro
 
 ### Terminal 1:
 
-1. open websocket server
+1. Intall python modules
+```bash
+pip install -r requirements.txt
+```
+
+2. run radio broadcast websocket server
 ```bash
 py app.py
 ```
