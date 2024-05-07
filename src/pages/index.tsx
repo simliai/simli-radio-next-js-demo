@@ -2,9 +2,9 @@ import React, { useState, useEffect, useRef, use } from "react";
 
 // Minimum chunk size for decoding,
 // Higher chunk size will result in longer delay but smoother playback
-// ( 1 chunk = 0.03 seconds )
+// ( 1 chunk = 0.033 seconds )
 // ( 30 chunks = 0.9 seconds )
-const MIN_CHUNK_SIZE = 20;
+const MIN_CHUNK_SIZE = 30;
 
 interface ImageFrame {
   frameWidth: number;
@@ -13,11 +13,12 @@ interface ImageFrame {
 }
 
 export default function Home() {
+  const [start, setStart] = useState(false); // Start button state
+
   const [ws, setWs] = useState<WebSocket | null>(null); // WebSocket connection for audio data
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null); // AudioContest for decoding audio data
   const [audioQueue, setAudioQueue] = useState<Array<AudioBuffer>>([]); // Queue for storing decoded audio data
-  const [lastAudioDuration, setLastAudioDuration] = useState(0); // Timestamp for the last audio played, used for scheduling
-  const [playing, setPlaying] = useState(false); // State of playing audio
+  const [playing, setPlaying] = useState(true); // State of playing audio
   const accumulatedAudioBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
 
   const frameQueue = useRef<Array<Array<ImageFrame>>>([]); // Queue for storing video data
@@ -27,8 +28,9 @@ export default function Home() {
   const [videoContext, setVideoContext] =
     useState<CanvasRenderingContext2D | null>(null);
   const currentFrame = useRef(0);
-  const fps = 29;
-  const frameInterval = 1000 / fps; // Calculate the time between frames in milliseconds
+  const fps = 30;
+  // const frameInterval = 1000 / fps; // Calculate the time between frames in milliseconds
+  const frameInterval = 30; // Time between frames in milliseconds (30 seems to work nice)
 
   const lastFrameTimeRef = useRef(performance.now());
   const requestRef = useRef<number>();
@@ -38,20 +40,23 @@ export default function Home() {
   /* Main loop */
   // TODO: playback on useEffect is not getting called accurately
   useEffect(() => {
-    if (playing && audioQueue.length > 0 && frameQueue.current.length > 0) {
+    if (playing && audioQueue.length > 0) {
       // requestRef.current = requestAnimationFrame(playFrameQueue);
       currentFrameBuffer.current = frameQueue.current.shift();
-      drawFrame();
-      playAudioQueue();
-    }
 
-    return () => {
-      cancelAnimationFrame(requestRef.current!);
-    };
-  }, [playing, currentChunkSize.current]);
+      Promise.all([drawFrame(), playAudioQueue()]).catch((error) => {
+        console.error("Error during playback:", error);
+      });
+      // Wait for x seconds for audio to play
+      // setTimeout(() => {}, (MIN_CHUNK_SIZE * 0.033));
+    }
+  }, [playing, audioQueue]);
 
   /* Create AudioContext at the start */
   useEffect(() => {
+    // Return if start is false
+    if (start === false) return;
+
     // Initialize AudioContext
     const newAudioContext = new AudioContext();
     setAudioContext(newAudioContext);
@@ -61,11 +66,14 @@ export default function Home() {
     if (videoCanvas) {
       setVideoContext(videoCanvas?.getContext("2d"));
     }
-  }, []);
+  }, [start]);
 
   /* Connect with Lipsync stream */
   useEffect(() => {
-    const ws_lipsync = new WebSocket("ws://34.91.9.107:8892/LipsyncStream");
+    // Return if start is false
+    if (start === false) return;
+
+    const ws_lipsync = new WebSocket("ws://api.simli.ai/LipsyncStream");
     ws_lipsync.binaryType = "arraybuffer";
     setWs(ws_lipsync);
 
@@ -91,18 +99,23 @@ export default function Home() {
 
       return () => {
         if (ws) {
+          console.error("Closing Lipsync WebSocket");
           ws.close();
         }
       };
     };
 
     return () => {
+      console.error("Closing Lipsync WebSocket");
       ws_lipsync.close();
     };
-  }, [audioContext, currentChunkSize.current]);
+  }, [audioContext]);
 
   /* Create WebSocket connection and listen for incoming audio broadcast data */
   useEffect(() => {
+    // Return if start is false
+    if (start === false) return;
+
     const ws_audio = new WebSocket("ws://localhost:9000/audio");
     ws_audio.binaryType = "arraybuffer";
 
@@ -121,6 +134,7 @@ export default function Home() {
     };
 
     return () => {
+      console.error("Closing Audio WebSocket");
       ws_audio.close();
     };
   }, [audioContext, ws]);
@@ -177,6 +191,14 @@ export default function Home() {
     // Push audio data to audio queue
     updateAudioQueue(audioData);
 
+    // --------------- PLAYBACK ----------------
+    // if (playing && audioQueue.length > 0 && frameQueue.current.length > 0) {
+    //   // requestRef.current = requestAnimationFrame(playFrameQueue);
+    //   currentFrameBuffer.current = frameQueue.current.shift();
+    //   drawFrame();
+    //   playAudioQueue();
+    // }
+
     // --------------- LOGGING ----------------
 
     // Log Everything
@@ -190,7 +212,7 @@ export default function Home() {
 
   function drawFrame() {
     if (currentFrame.current >= currentFrameBuffer.current.length) {
-      // currentFrame = 0; // Loop the video
+      currentFrame.current = 0;
       return;
     }
 
@@ -248,7 +270,7 @@ export default function Home() {
   /* ------------------- OLD ------------------- */
 
   /* Update video queue */
-  const updateFrameQueue = (imageFrame: ImageFrame) => {
+  const updateFrameQueue = async (imageFrame: ImageFrame) => {
     if (currentChunkSize.current >= MIN_CHUNK_SIZE) {
       frameQueue.current.push(accumulatedFrameBuffer.current);
       accumulatedFrameBuffer.current = [];
@@ -349,65 +371,65 @@ export default function Home() {
     source.buffer = audioBuffer;
     source.connect(audioContext!.destination);
 
-    // Calculate the scheduled time using performance.now()
-    const currentTime = audioContext!.currentTime; // Convert to seconds
-    const delay =
-      lastAudioDuration + Math.max(0, currentTime - lastAudioDuration);
-    const scheduledTime = delay;
-
-    // Schedule playback at the correct time
+    // Start playback
     source.start(0);
 
-    // Update timestamp for the next audio
-    setLastAudioDuration((prev) => prev + audioBuffer!.duration);
-
     console.log(
-      `Playing next audio: CurrentTime: ${currentTime.toFixed(
-        2
-      )}  AudioDuration: ${audioBuffer!.duration.toFixed(
-        2
-      )} ScheduledTime ${scheduledTime.toFixed(2)}`
+      `Playing audio: AudioDuration: ${audioBuffer!.duration.toFixed(2)}`
     );
   };
 
   const handlePauseAudio = () => {
     setPlaying(false);
-    audioContext!.suspend();
+    // audioContext!.suspend();
   };
 
   const handleResumeAudio = () => {
     setPlaying(true);
-    audioContext!.resume();
+    // audioContext!.resume();
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-between p-24 font-mono">
-      <canvas
-        ref={canvasRef}
-        width="512"
-        height="512"
-        style={{ border: "1px solid black" }}
-      ></canvas>
-      <button
-        className={
-          "hover:opacity-75 text-white font-bold py-2 w-[300px] px-4 rounded" +
-          (playing ? " bg-red-500" : " bg-green-500")
-        }
-        onClick={() => {
-          playing ? handlePauseAudio() : handleResumeAudio();
-        }}
-      >
-        {playing ? "Pause" : "Play"}
-      </button>
-      <div>
-        <p>Chunk size: {currentChunkSize.current}</p>
-        <p>Frame Queue Length: {frameQueue.current.length}</p>
-        <p>Audio Queue Length: {audioQueue.length}</p>
-        <br />
-        <p>Playback Delay: {(MIN_CHUNK_SIZE * 0.03).toFixed(2)} seconds</p>
-      </div>
+    <main className="flex min-h-screen flex-col items-center justify-center p-24 font-mono">
+      {!start ? (
+        <button
+          onClick={() => setStart(true)}
+          className="hover:opacity-75 text-white font-bold py-2 w-[300px] px-4 rounded bg-slate-500"
+        >
+          Start
+        </button>
+      ) : (
+        <>
+          <canvas
+            ref={canvasRef}
+            width="512"
+            height="512"
+            style={{ border: "1px solid black" }}
+          ></canvas>
+              <br />
+          <button
+            className={
+              "hover:opacity-75 text-white font-bold py-2 w-[300px] px-4 rounded" +
+              (playing ? " bg-red-500" : " bg-green-500")
+            }
+            onClick={() => {
+              playing ? handlePauseAudio() : handleResumeAudio();
+            }}
+          >
+            {playing ? "Pause" : "Play"}
+          </button>
+            <br />
+          <div>
+            <p>Chunk size: {currentChunkSize.current}</p>
+            <p>Frame Queue Length: {frameQueue.current.length}</p>
+            <p>Audio Queue Length: {audioQueue.length}</p>
+            <br />
+            <p>Playback Delay: {(MIN_CHUNK_SIZE * 0.033).toFixed(2)} seconds</p>
+          </div>
 
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex"></div>
+          <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex"></div>
+        </>
+      )}
     </main>
   );
 }
