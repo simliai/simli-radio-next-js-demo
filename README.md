@@ -47,6 +47,7 @@ sequenceDiagram
 ### Terminal 1:
 
 1. Intall python modules
+
 Linux
 ```bash
 python3 -m venv .venv
