@@ -3,8 +3,8 @@ import React, { useState, useEffect, useRef, use } from "react";
 // Minimum chunk size for decoding,
 // Higher chunk size will result in longer delay but smoother playback
 // ( 1 chunk = 0.033 seconds )
-// ( 30 chunks = 0.9 seconds )
-const MIN_CHUNK_SIZE = 20;
+// ( 30 chunks = 0.99 seconds )
+const MIN_CHUNK_SIZE = 30;
 
 interface ImageFrame {
   frameWidth: number;
@@ -26,7 +26,7 @@ export default function Home() {
   const [playing, setPlaying] = useState(false); // State of playing audio
   const accumulatedAudioBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
   const audioConstant = -10; // Audio constant for audio playback to tweak chunking
-  const playbackDelay = MIN_CHUNK_SIZE*(1000/30) + audioConstant; // Playback delay for audio and video in milliseconds
+  const playbackDelay = MIN_CHUNK_SIZE * (1000 / 30) + audioConstant; // Playback delay for audio and video in milliseconds
 
   // ------------------- VIDEO -------------------
   const frameQueue = useRef<Array<Array<ImageFrame>>>([]); // Queue for storing video data
@@ -40,9 +40,8 @@ export default function Home() {
   // const frameInterval = 1000 / fps; // Calculate the time between frames in milliseconds
   const frameInterval = 30; // Time between frames in milliseconds (30 seems to work nice)
 
-
   /* Main loop */
-  useEffect (() => {
+  useEffect(() => {
     const intervalId = setInterval(() => {
       if (playing && audioQueue.current.length > 0) {
         playFrameQueue();
@@ -51,7 +50,6 @@ export default function Home() {
     }, playbackDelay);
 
     return () => clearInterval(intervalId);
-
   }, [playing]);
 
   /* Create AudioContext at the start */
@@ -137,7 +135,7 @@ export default function Home() {
         ws.send(event.data);
 
         // Send zeros to lipsync server for silence
-        // const zeroData = new Uint8Array(4096);
+        // const zeroData = new Uint8Array(256);
         // ws.send(zeroData.buffer);
       }
     };
@@ -153,7 +151,7 @@ export default function Home() {
       playFrameQueue();
       const playbackDuration = await playAudioQueue();
       await new Promise((resolve) =>
-        setTimeout(resolve, MIN_CHUNK_SIZE*(1000/30))
+        setTimeout(resolve, MIN_CHUNK_SIZE * (1000 / 30))
       );
     }
   }
@@ -332,7 +330,11 @@ export default function Home() {
     source.connect(audioContext!.destination);
 
     executionTime.current = performance.now() - startTime.current;
-    console.log("Execution Time:", executionTime.current / 1000, "seconds");
+    console.log(
+      "Chunk collection time:",
+      executionTime.current / 1000,
+      "seconds"
+    );
     startTime.current = null;
     executionTime.current = 0;
 
@@ -349,12 +351,10 @@ export default function Home() {
 
   const handlePauseAudio = () => {
     setPlaying(false);
-    // audioContext!.suspend();
   };
 
   const handleResumeAudio = () => {
     setPlaying(true);
-    // audioContext!.resume();
   };
 
   return (
@@ -388,10 +388,6 @@ export default function Home() {
           </button>
           <br />
           <div>
-            <p>Chunk size: {currentChunkSize.current}</p>
-            <p>Frame Queue Length: {frameQueue.current.length}</p>
-            <p>Audio Queue Length: {audioQueue.current.length}</p>
-            <br />
             <p>Playback Delay: {(MIN_CHUNK_SIZE * 0.033).toFixed(2)} seconds</p>
           </div>
 
