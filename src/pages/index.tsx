@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, use } from "react";
 // Higher chunk size will result in longer delay but smoother playback
 // ( 1 chunk = 0.033 seconds )
 // ( 30 chunks = 0.9 seconds )
-const MIN_CHUNK_SIZE = 30;
+const MIN_CHUNK_SIZE = 20;
 
 interface ImageFrame {
   frameWidth: number;
@@ -14,13 +14,21 @@ interface ImageFrame {
 
 export default function Home() {
   const [start, setStart] = useState(false); // Start button state
-
   const [ws, setWs] = useState<WebSocket | null>(null); // WebSocket connection for audio data
+
+  const startTime = useRef<any>();
+  const executionTime = useRef<any>();
+  const currentChunkSize = useRef<number>(0); // Current chunk size for decoding
+
+  // ------------------- AUDIO -------------------
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null); // AudioContest for decoding audio data
-  const [audioQueue, setAudioQueue] = useState<Array<AudioBuffer>>([]); // Queue for storing decoded audio data
+  const audioQueue = useRef<Array<AudioBuffer>>([]); // Ref for audio queue
   const [playing, setPlaying] = useState(false); // State of playing audio
   const accumulatedAudioBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
+  const audioConstant = -10; // Audio constant for audio playback to tweak chunking
+  const playbackDelay = MIN_CHUNK_SIZE*(1000/30) + audioConstant; // Playback delay for audio and video in milliseconds
 
+  // ------------------- VIDEO -------------------
   const frameQueue = useRef<Array<Array<ImageFrame>>>([]); // Queue for storing video data
   const accumulatedFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
   const currentFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
@@ -32,17 +40,19 @@ export default function Home() {
   // const frameInterval = 1000 / fps; // Calculate the time between frames in milliseconds
   const frameInterval = 30; // Time between frames in milliseconds (30 seems to work nice)
 
-  const startTime = useRef<any>();
-  const executionTime = useRef<any>();
-  const averageExecutionTime = useRef<any>();
-
-  const currentChunkSize = useRef<number>(0); // Current chunk size for decoding
 
   /* Main loop */
-  // TODO: playback on useEffect is not getting called accurately
-  useEffect(() => {
-    playback();
-  }, [playing, audioQueue]);
+  useEffect (() => {
+    const intervalId = setInterval(() => {
+      if (playing && audioQueue.current.length > 0) {
+        playFrameQueue();
+        playAudioQueue();
+      }
+    }, playbackDelay);
+
+    return () => clearInterval(intervalId);
+
+  }, [playing]);
 
   /* Create AudioContext at the start */
   useEffect(() => {
@@ -58,7 +68,6 @@ export default function Home() {
     if (videoCanvas) {
       setVideoContext(videoCanvas?.getContext("2d"));
     }
-
   }, [start]);
 
   /* Connect with Lipsync stream */
@@ -140,11 +149,14 @@ export default function Home() {
   }, [audioContext, ws]);
 
   async function playback() {
-    if (playing && audioQueue.length > 0) {
+    while (audioQueue.current.length > 0) {
       playFrameQueue();
-      playAudioQueue();
+      const playbackDuration = await playAudioQueue();
+      await new Promise((resolve) =>
+        setTimeout(resolve, MIN_CHUNK_SIZE*(1000/30))
+      );
     }
-  };
+  }
 
   /* Process Data Bytes to Audio and Video */
   const processToVideoAudio = async (dataArrayBuffer: ArrayBuffer) => {
@@ -210,15 +222,16 @@ export default function Home() {
         currentFrame.current = 0;
         return;
       }
-  
+
       const arrayBuffer =
         currentFrameBuffer.current[currentFrame.current].imageData;
       const width = currentFrameBuffer.current[currentFrame.current].frameWidth;
-      const height = currentFrameBuffer.current[currentFrame.current].frameHeight;
-  
+      const height =
+        currentFrameBuffer.current[currentFrame.current].frameHeight;
+
       const blob = new Blob([arrayBuffer]); // Convert ArrayBuffer to Blob
       const url = URL.createObjectURL(blob);
-  
+
       const image = new Image();
       image.onload = () => {
         videoContext?.clearRect(0, 0, width, height);
@@ -226,13 +239,13 @@ export default function Home() {
         URL.revokeObjectURL(url); // Clean up memory after drawing the image
       };
       image.src = url;
-  
+
       currentFrame.current++;
       setTimeout(drawFrame, frameInterval); // Set the next frame draw
     };
-  
+
     await drawFrame();
-  }
+  };
 
   /* Update video queue */
   const updateFrameQueue = async (imageFrame: ImageFrame) => {
@@ -273,7 +286,7 @@ export default function Home() {
       );
 
       // 4: Push decoded audio data to the queue
-      setAudioQueue((prevQueue) => [...prevQueue, decodedAudioData]);
+      audioQueue.current.push(decodedAudioData);
 
       currentChunkSize.current = 0; // Reset chunk size
     } else {
@@ -310,9 +323,9 @@ export default function Home() {
   }
 
   /* Play audio in the queue */
-  const playAudioQueue = async () => {
-    const audioBuffer = audioQueue.shift();
-    if (!audioBuffer) return;
+  async function playAudioQueue(): Promise<number> {
+    const audioBuffer = audioQueue.current.shift();
+    if (!audioBuffer) return 0;
 
     const source = audioContext!.createBufferSource();
     source.buffer = audioBuffer;
@@ -329,7 +342,10 @@ export default function Home() {
     console.log(
       `Playing audio: AudioDuration: ${audioBuffer!.duration.toFixed(2)}`
     );
-  };
+
+    // Return back audio duration
+    return audioBuffer!.duration;
+  }
 
   const handlePauseAudio = () => {
     setPlaying(false);
@@ -374,7 +390,7 @@ export default function Home() {
           <div>
             <p>Chunk size: {currentChunkSize.current}</p>
             <p>Frame Queue Length: {frameQueue.current.length}</p>
-            <p>Audio Queue Length: {audioQueue.length}</p>
+            <p>Audio Queue Length: {audioQueue.current.length}</p>
             <br />
             <p>Playback Delay: {(MIN_CHUNK_SIZE * 0.033).toFixed(2)} seconds</p>
           </div>
