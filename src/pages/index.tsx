@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, use } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 
 interface ImageFrame {
@@ -22,6 +22,7 @@ export default function Home() {
 
   const startTime = useRef<any>();
   const executionTime = useRef<any>();
+  const [chunkCollectionTime, setChunkCollectionTime] = useState<number>(0);
   const currentChunkSize = useRef<number>(0); // Current chunk size for decoding
 
   const startTimeFirstByte = useRef<any>(null);
@@ -93,7 +94,6 @@ export default function Home() {
 
     ws_lipsync.onopen = () => {
       console.log("Connected to lipsync server");
-      startTimeFirstByte.current = performance.now(); // Start time for first byte
 
       const metadata = {
         video_reference_url:
@@ -108,16 +108,9 @@ export default function Home() {
     };
 
     ws_lipsync.onmessage = (event) => {
-      if (timeTillFirstByte.current === null) {
-        timeTillFirstByte.current =
-          performance.now() - startTimeFirstByte.current;
-        setTimeTillFirstByteState(timeTillFirstByte.current);
-        console.log(
-          "Time till first byte:",
-          timeTillFirstByte.current / 1000,
-          "seconds"
-        );
-      }
+      timeTillFirstByte.current =
+        performance.now() - startTimeFirstByte.current;
+      setTimeTillFirstByteState(timeTillFirstByte.current);
 
       if (startTime.current === null) {
         startTime.current = performance.now();
@@ -160,6 +153,7 @@ export default function Home() {
       // Wait for ws to OPEN and send a message to the server
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(event.data);
+        startTimeFirstByte.current = performance.now(); // Start time for first byte
 
         // Send zeros to lipsync server for silence
         // const zeroData = new Uint8Array(256);
@@ -358,6 +352,7 @@ export default function Home() {
     source.connect(audioContext!.destination);
 
     executionTime.current = performance.now() - startTime.current;
+    setChunkCollectionTime(executionTime.current);
     console.log(
       "Chunk collection time:",
       executionTime.current / 1000,
@@ -403,23 +398,23 @@ export default function Home() {
           </button>
           <div>
 
-          
-          <div className="flex gap-3">
-            <label>Minimum Chunk Size</label>
-            <input
-              type="range"
-              min={1}
-              max={60}
-              value={minimumChunkSizeState}
-              onChange={handleMinimumChunkSizeChange}
-            />
-            <span>{minimumChunkSizeState}</span>
-          </div>
-          <p>Playback Delay: {(playbackDelay / 1000).toFixed(4)} seconds</p>
-          <div className="text-[11px] text-slate-500">
-            <p>Higher chunk size -&gt; Better decode quality | Slower playback</p>
-            <p>Lower chunk size -&gt; Faster playback | Lower decode quality</p>
-          </div>
+
+            <div className="flex gap-3">
+              <label>Minimum Chunk Size</label>
+              <input
+                type="range"
+                min={1}
+                max={60}
+                value={minimumChunkSizeState}
+                onChange={handleMinimumChunkSizeChange}
+              />
+              <span>{minimumChunkSizeState}</span>
+            </div>
+            <p>Playback Delay: {(playbackDelay / 1000).toFixed(4)} seconds</p>
+            <div className="text-[11px] text-slate-500">
+              <p>Higher chunk size -&gt; Better decode quality | Slower playback</p>
+              <p>Lower chunk size -&gt; Faster playback | Lower decode quality</p>
+            </div>
           </div>
         </div>
       ) : (
@@ -448,6 +443,7 @@ export default function Home() {
               Time till first byte: {(timeTillFirstByteState / 1000).toFixed(4)}{" "}
               seconds
             </p>
+            <p>Total chunk collection time: {(chunkCollectionTime/1000).toFixed(4)} seconds</p>
             <p>AudioQueue Length: {audioQueueLengthState}</p>
             <p>FrameQueue Length: {frameQueueLengthState}</p>
             <p>Minimum Chunk Size: {minimumChunkSizeState}</p>
