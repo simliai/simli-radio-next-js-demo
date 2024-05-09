@@ -46,7 +46,19 @@ sequenceDiagram
 
 ### Terminal 1: (AudioServer)
 
-1. Install python modules
+1. Install FFMPEG
+   
+Linux
+```bash
+sudo apt install ffmpeg
+```
+
+Windows
+```bash
+winget install ffmpeg
+```
+
+2. Install python modules
 
 Linux
 ```bash
@@ -60,7 +72,7 @@ Windows
 pip install -r requirements.txt
 ```
 
-2. run radio broadcast websocket server
+3. run radio broadcast websocket server
 ```bash
 python app.py
 ```
