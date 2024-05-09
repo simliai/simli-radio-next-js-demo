@@ -44,9 +44,9 @@ sequenceDiagram
 
 ## Usage
 
-### Terminal 1:
+### Terminal 1: (AudioServer)
 
-1. Intall python modules
+1. Install python modules
 
 Linux
 ```bash
@@ -65,7 +65,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-### Terminal 2:
+### Terminal 2: (Frontend)
 Open another terminal
 1. Install packages
 ```bash
