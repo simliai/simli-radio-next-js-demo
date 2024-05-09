@@ -1,6 +1,6 @@
 # simli-next-js-demo
 
-In this demo we are using webhooks to stream incoming audio from a [radio broadcast](https://radio.talksport.com/stream) to `ws://api.simli.ai/LipsyncStream` which returns lipsynced video and audio frames to be displayed on frontend
+In this demo we are using websockets to stream incoming audio from a [radio broadcast](https://radio.talksport.com/stream) to `ws://api.simli.ai/LipsyncStream` which returns lipsynced video and audio frames to be displayed on frontend
 
 Websocket schema: [Click here](https://github.com/simliai/simli-next-js-demo/blob/main/Websockets.md)
 
