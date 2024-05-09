@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, use } from "react";
 // Higher chunk size will result in longer delay but smoother playback
 // ( 1 chunk = 0.033 seconds )
 // ( 30 chunks = 0.99 seconds )
-const MIN_CHUNK_SIZE = 30;
+const MIN_CHUNK_SIZE = 12;
 
 interface ImageFrame {
   frameWidth: number;
@@ -25,8 +25,8 @@ export default function Home() {
   const audioQueue = useRef<Array<AudioBuffer>>([]); // Ref for audio queue
   const [playing, setPlaying] = useState(false); // State of playing audio
   const accumulatedAudioBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
-  const audioConstant = -10; // Audio constant for audio playback to tweak chunking
-  const playbackDelay = MIN_CHUNK_SIZE * (1000 / 30) + audioConstant; // Playback delay for audio and video in milliseconds
+  const audioConstant = 0.042; // Audio constant for audio playback to tweak chunking
+  const playbackDelay = MIN_CHUNK_SIZE * (1000 / 30) + (MIN_CHUNK_SIZE * audioConstant); // Playback delay for audio and video in milliseconds
 
   // ------------------- VIDEO -------------------
   const frameQueue = useRef<Array<Array<ImageFrame>>>([]); // Queue for storing video data
@@ -59,7 +59,7 @@ export default function Home() {
 
     // Initialize AudioContext
     const newAudioContext = new AudioContext();
-    setAudioContext(newAudioContext);
+    setAudioContext(newAudioContext); 
 
     // Intialize VideoContext
     const videoCanvas = canvasRef.current;
@@ -324,7 +324,7 @@ export default function Home() {
   async function playAudioQueue(): Promise<number> {
     const audioBuffer = audioQueue.current.shift();
     if (!audioBuffer) return 0;
-
+    console.log("Playing audio buffer:", audioBuffer);
     const source = audioContext!.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext!.destination);
@@ -388,7 +388,7 @@ export default function Home() {
           </button>
           <br />
           <div>
-            <p>Playback Delay: {(MIN_CHUNK_SIZE * 0.033).toFixed(2)} seconds</p>
+            <p>Playback Delay: {(playbackDelay/1000).toFixed(4)} seconds</p>
           </div>
 
           <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex"></div>
