@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useRef, use } from "react";
-
-// Minimum chunk size for decoding,
-// Higher chunk size will result in longer delay but smoother playback
-// ( 1 chunk = 0.033 seconds )
-// ( 30 chunks = 0.99 seconds )
-const MIN_CHUNK_SIZE = 12;
+import Link from "next/link";
 
 interface ImageFrame {
   frameWidth: number;
@@ -16,20 +11,39 @@ export default function Home() {
   const [start, setStart] = useState(false); // Start button state
   const [ws, setWs] = useState<WebSocket | null>(null); // WebSocket connection for audio data
 
+  // Minimum chunk size for decoding,
+  // Higher chunk size will result in longer delay but smoother playback
+  // ( 1 chunk = 0.033 seconds )
+  // ( 30 chunks = 0.99 seconds )
+  const minimumChunkSize = useRef<number>(15);
+  const [minimumChunkSizeState, setMinimumChunkSizeState] = useState<number>(
+    minimumChunkSize.current
+  );
+
   const startTime = useRef<any>();
   const executionTime = useRef<any>();
   const currentChunkSize = useRef<number>(0); // Current chunk size for decoding
 
+  const startTimeFirstByte = useRef<any>(null);
+  const timeTillFirstByte = useRef<any>(null);
+  const [timeTillFirstByteState, setTimeTillFirstByteState] =
+    useState<number>(0);
+
   // ------------------- AUDIO -------------------
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null); // AudioContest for decoding audio data
   const audioQueue = useRef<Array<AudioBuffer>>([]); // Ref for audio queue
+  const [audioQueueLengthState, setAudioQueueLengthState] = useState<number>(0); // State for audio queue length
   const [playing, setPlaying] = useState(false); // State of playing audio
   const accumulatedAudioBuffer = useRef<Array<Uint8Array>>([]); // Buffer for accumulating incoming data until it reaches the minimum size for decoding
+
   const audioConstant = 0.042; // Audio constant for audio playback to tweak chunking
-  const playbackDelay = MIN_CHUNK_SIZE * (1000 / 30) + (MIN_CHUNK_SIZE * audioConstant); // Playback delay for audio and video in milliseconds
+  const playbackDelay =
+    minimumChunkSize.current * (1000 / 30) +
+    minimumChunkSize.current * audioConstant; // Playback delay for audio and video in milliseconds
 
   // ------------------- VIDEO -------------------
   const frameQueue = useRef<Array<Array<ImageFrame>>>([]); // Queue for storing video data
+  const [frameQueueLengthState, setFrameQueueLengthState] = useState<number>(0); // State for frame queue length
   const accumulatedFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
   const currentFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -59,7 +73,7 @@ export default function Home() {
 
     // Initialize AudioContext
     const newAudioContext = new AudioContext();
-    setAudioContext(newAudioContext); 
+    setAudioContext(newAudioContext);
 
     // Intialize VideoContext
     const videoCanvas = canvasRef.current;
@@ -79,6 +93,8 @@ export default function Home() {
 
     ws_lipsync.onopen = () => {
       console.log("Connected to lipsync server");
+      startTimeFirstByte.current = performance.now(); // Start time for first byte
+
       const metadata = {
         video_reference_url:
           "https://storage.googleapis.com/charactervideos/5514e24d-6086-46a3-ace4-6a7264e5cb7c/5514e24d-6086-46a3-ace4-6a7264e5cb7c.mp4",
@@ -92,6 +108,17 @@ export default function Home() {
     };
 
     ws_lipsync.onmessage = (event) => {
+      if (timeTillFirstByte.current === null) {
+        timeTillFirstByte.current =
+          performance.now() - startTimeFirstByte.current;
+        setTimeTillFirstByteState(timeTillFirstByte.current);
+        console.log(
+          "Time till first byte:",
+          timeTillFirstByte.current / 1000,
+          "seconds"
+        );
+      }
+
       if (startTime.current === null) {
         startTime.current = performance.now();
       }
@@ -151,7 +178,7 @@ export default function Home() {
       playFrameQueue();
       const playbackDuration = await playAudioQueue();
       await new Promise((resolve) =>
-        setTimeout(resolve, MIN_CHUNK_SIZE * (1000 / 30))
+        setTimeout(resolve, minimumChunkSize.current * (1000 / 30))
       );
     }
   }
@@ -185,6 +212,7 @@ export default function Home() {
     // Push image data to frame queue
     const imageFrame: ImageFrame = { frameWidth, frameHeight, imageData };
     updateFrameQueue(imageFrame);
+    setFrameQueueLengthState(frameQueue.current.length);
 
     // --------------- AUDIO DATA ----------------
 
@@ -197,6 +225,7 @@ export default function Home() {
 
     // Push audio data to audio queue
     updateAudioQueue(audioData);
+    setAudioQueueLengthState(audioQueue.current.length);
 
     console.log("Received chunk from Lipsync");
 
@@ -247,7 +276,7 @@ export default function Home() {
 
   /* Update video queue */
   const updateFrameQueue = async (imageFrame: ImageFrame) => {
-    if (currentChunkSize.current >= MIN_CHUNK_SIZE) {
+    if (currentChunkSize.current >= minimumChunkSize.current) {
       frameQueue.current.push(accumulatedFrameBuffer.current);
       accumulatedFrameBuffer.current = [];
     } else {
@@ -257,7 +286,7 @@ export default function Home() {
 
   /* Decode ArrayBuffer data to Audio and push to audio queue */
   const updateAudioQueue = async (data: ArrayBuffer) => {
-    if (currentChunkSize.current >= MIN_CHUNK_SIZE) {
+    if (currentChunkSize.current >= minimumChunkSize.current) {
       console.log("--------- CHUNK SIZE REACHED", currentChunkSize);
 
       // 1: Concatenate Uint8Arrays into a single Uint8Array
@@ -324,7 +353,6 @@ export default function Home() {
   async function playAudioQueue(): Promise<number> {
     const audioBuffer = audioQueue.current.shift();
     if (!audioBuffer) return 0;
-    console.log("Playing audio buffer:", audioBuffer);
     const source = audioContext!.createBufferSource();
     source.buffer = audioBuffer;
     source.connect(audioContext!.destination);
@@ -357,15 +385,43 @@ export default function Home() {
     setPlaying(true);
   };
 
+  const handleMinimumChunkSizeChange = (event: any) => {
+    setPlaying(false);
+    minimumChunkSize.current = parseInt(event.target.value);
+    setMinimumChunkSizeState(minimumChunkSize.current);
+  };
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24 font-mono">
       {!start ? (
-        <button
-          onClick={() => setStart(true)}
-          className="hover:opacity-75 text-white font-bold py-2 w-[300px] px-4 rounded bg-slate-500"
-        >
-          Start
-        </button>
+        <div className="flex items-center flex-col gap-3 w-[500px]">
+          <button
+            onClick={() => setStart(true)}
+            className="hover:opacity-75 text-white font-bold py-2 w-[300px] px-4 rounded bg-slate-500"
+          >
+            Start
+          </button>
+          <div>
+
+          
+          <div className="flex gap-3">
+            <label>Minimum Chunk Size</label>
+            <input
+              type="range"
+              min={1}
+              max={60}
+              value={minimumChunkSizeState}
+              onChange={handleMinimumChunkSizeChange}
+            />
+            <span>{minimumChunkSizeState}</span>
+          </div>
+          <p>Playback Delay: {(playbackDelay / 1000).toFixed(4)} seconds</p>
+          <div className="text-[11px] text-slate-500">
+            <p>Higher chunk size -&gt; Better decode quality | Slower playback</p>
+            <p>Lower chunk size -&gt; Faster playback | Lower decode quality</p>
+          </div>
+          </div>
+        </div>
       ) : (
         <>
           <canvas
@@ -388,12 +444,26 @@ export default function Home() {
           </button>
           <br />
           <div>
-            <p>Playback Delay: {(playbackDelay/1000).toFixed(4)} seconds</p>
+            <p>
+              Time till first byte: {(timeTillFirstByteState / 1000).toFixed(4)}{" "}
+              seconds
+            </p>
+            <p>AudioQueue Length: {audioQueueLengthState}</p>
+            <p>FrameQueue Length: {frameQueueLengthState}</p>
+            <p>Minimum Chunk Size: {minimumChunkSizeState}</p>
+            <p>Playback Delay: {(playbackDelay / 1000).toFixed(4)} seconds</p>
           </div>
 
           <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex"></div>
         </>
       )}
+      <Link
+        href={"https://www.simli.com/"}
+        className="absolute bottom-4 hover:opacity-100 flex items-start text-l gap-2 opacity-30 cursor-pointer"
+      >
+        Powered by{" "}
+        <img src="/simli_logo.svg" alt="Simli Logo" width={64} height={64} />
+      </Link>
     </main>
   );
 }
