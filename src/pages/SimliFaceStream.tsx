@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, Component } from "react";
-import Link from "next/link";
+'use client';
+import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from "react";
 
 interface ImageFrame {
   frameWidth: number;
@@ -7,7 +7,15 @@ interface ImageFrame {
   imageData: Uint8Array;
 }
 
-function SimliFaceStream({ start, audioData }: any) {
+interface props {
+  start: boolean;
+}
+
+const SimliFaceStream = forwardRef(({start}: props, ref) => {
+  useImperativeHandle(ref, () => ({
+    sendAudioDataToLipsync,
+  }));
+
   const [ws, setWs] = useState<WebSocket | null>(null); // WebSocket connection for audio data
 
   // Minimum chunk size for decoding,
@@ -80,14 +88,14 @@ function SimliFaceStream({ start, audioData }: any) {
       setVideoContext(videoCanvas?.getContext("2d"));
     }
   }, [start]);
-
-  /* Handle incoming audioData */
-  useEffect(() => {
+  
+  const sendAudioDataToLipsync = (audioData: Uint8Array) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(audioData);
       startTimeFirstByte.current = performance.now(); // Start time for first byte
     }
-  }, [audioData]);
+    console.log("pong");
+  };
 
   /* Connect with Lipsync stream */
   useEffect(() => {
@@ -347,6 +355,6 @@ function SimliFaceStream({ start, audioData }: any) {
   }
 
   return <canvas ref={canvasRef} width="512" height="512"></canvas>;
-}
+});
 
 export default SimliFaceStream;

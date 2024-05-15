@@ -1,3 +1,4 @@
+'use client';
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import SimliFaceStream from "./SimliFaceStream";
@@ -6,6 +7,8 @@ export default function Home() {
   const [start, setStart] = useState(false);
   const [playing, setPlaying] = useState(false); // State of playing audio
   const [audioData, setAudioData] = useState(new Uint8Array());
+
+  const simliFaceStreamRef = useRef(null);
 
   /* Create WebSocket connection and listen for incoming audio broadcast data */
   useEffect(() => {
@@ -21,7 +24,12 @@ export default function Home() {
 
     ws_audio.onmessage = (event) => {
       // console.log("Received data from server:", event.data);
+      if(simliFaceStreamRef.current)
+        {
+          simliFaceStreamRef.current.sendAudioDataToLipsync(event.data);
+        }
       setAudioData(event.data);
+      console.log("ping");
 
     };
 
@@ -80,7 +88,7 @@ export default function Home() {
         </div>
       ) : (
         <>
-          <SimliFaceStream start={start} audioData={audioData}/>
+          <SimliFaceStream ref={simliFaceStreamRef} start={start}/>
           <br />
           <button
             className={
