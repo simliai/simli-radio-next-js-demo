@@ -30,7 +30,7 @@ interface props {
 }
 
 const SimliFaceStream = forwardRef(
-  ({ start, sessionToken, minimumChunkSize = 8 }: props, ref) => {
+  ({ start, sessionToken, minimumChunkSize = 6 }: props, ref) => {
     useImperativeHandle(ref, () => ({
       sendAudioDataToLipsync,
     }));
@@ -60,7 +60,7 @@ const SimliFaceStream = forwardRef(
     const audioQueueEmpty = useRef<boolean>(false);
 
     // ------------------- VIDEO -------------------
-    const frameQueue = useRef<Array<Array<ImageFrame>>>([]); // Queue for storing video data
+    const frameQueue = useRef<Array<ImageFrame>>([]); // Queue for storing video data
 
     const accumulatedFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
     const currentFrameBuffer = useRef<Array<ImageFrame>>([]); // Buffer for accumulating incoming video data
@@ -70,7 +70,7 @@ const SimliFaceStream = forwardRef(
     const currentFrame = useRef(0);
 
     const fps = 30;
-    const frameInterval = 30; // Calculate the time between frames in milliseconds
+    const frameInterval = 33; // Calculate the time between frames in milliseconds
 
     /* Create AudioContext at the start */
     useEffect(() => {
@@ -247,6 +247,7 @@ const SimliFaceStream = forwardRef(
       ws_lipsync.onopen = () => {
         console.log("Connected to lipsync server");
         ws_lipsync.send(sessionToken);
+        playFrameQueue();
       };
 
       ws_lipsync.onmessage = (event) => {
@@ -255,10 +256,8 @@ const SimliFaceStream = forwardRef(
         }
 
         // console.log("Received data arraybuffer from lipsync server:", event.data);
-        console.log("Received chunk from Lipsync: ", event.data);
+        // console.log("Received chunk from Lipsync: ", event.data);
         processToVideoAudio(event.data);
-        playFrameQueue();
-
 
         numberOfChunksInQue.current += 1; // Increment chunk size by 1
 
@@ -285,22 +284,21 @@ const SimliFaceStream = forwardRef(
     /* Play video frames queue */
     const playFrameQueue = async () => {
       // Update current frame buffer if there is a new frame
-      const frame: ImageFrame[] | undefined = frameQueue.current.shift();
+      const frame: ImageFrame | undefined = frameQueue.current.shift();
       // console.log("Frames in queue: ", frameQueue.current.length);
 
-      if (frame === undefined || currentFrame.current >= frame.length) {
+      if (frame === undefined) {
         // console.log("FrameQueue: No frames to play!");
-        currentFrame.current = 0;
         setTimeout(playFrameQueue, frameInterval);
         return;
       }
 
       const arrayBuffer =
-        frame[currentFrame.current].imageData;
+        frame.imageData;
       const width =
-        frame[currentFrame.current].frameWidth;
+        frame.frameWidth;
       const height =
-        frame[currentFrame.current].frameHeight;
+        frame.frameHeight;
 
       const blob = new Blob([arrayBuffer]); // Convert ArrayBuffer to Blob
       const url = URL.createObjectURL(blob);
@@ -313,47 +311,8 @@ const SimliFaceStream = forwardRef(
       };
       image.src = url;
 
-      currentFrame.current++;
       setTimeout(playFrameQueue, frameInterval); // Set the next frame draw
-
     };
-    // const playFrameQueue = async () => {
-    //   // Update current frame buffer if there is a new frame
-    //   const frame: ImageFrame[] | undefined = frameQueue.current.shift();
-    //   if (frame !== undefined) {
-    //     currentFrameBuffer.current = frame;
-    //   }
-
-    //   const drawFrame = async () => {
-    //     if (currentFrame.current >= currentFrameBuffer.current.length) {
-    //       currentFrame.current = 0;
-    //       return;
-    //     }
-
-    //     const arrayBuffer =
-    //       currentFrameBuffer.current[currentFrame.current].imageData;
-    //     const width =
-    //       currentFrameBuffer.current[currentFrame.current].frameWidth;
-    //     const height =
-    //       currentFrameBuffer.current[currentFrame.current].frameHeight;
-
-    //     const blob = new Blob([arrayBuffer]); // Convert ArrayBuffer to Blob
-    //     const url = URL.createObjectURL(blob);
-
-    //     const image = new Image();
-    //     image.onload = () => {
-    //       videoContext?.clearRect(0, 0, width, height);
-    //       videoContext?.drawImage(image, 0, 0, width, height);
-    //       URL.revokeObjectURL(url); // Clean up memory after drawing the image
-    //     };
-    //     image.src = url;
-
-    //     currentFrame.current++;
-    //     setTimeout(drawFrame, frameInterval); // Set the next frame draw
-    //   };
-
-    //   await drawFrame();
-    // };
 
 
     const Uint8ToFloat32 = (incomingData) => { // incoming data is a UInt8Array
@@ -400,7 +359,9 @@ const SimliFaceStream = forwardRef(
         });
 
         // Update Frame Queue
-        frameQueue.current.push(accumulatedFrameBuffer.current);
+        for (let i = 0; i < accumulatedFrameBuffer.current.length; i++) {
+          frameQueue.current.push(accumulatedFrameBuffer.current[i]);
+        }
         accumulatedFrameBuffer.current = [];
 
         // Reset chunk size

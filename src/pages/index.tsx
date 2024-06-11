@@ -9,7 +9,7 @@ export default function Home() {
 
   const simliFaceStreamRef = useRef(null);
   const [sessionToken, setSessionToken] = useState("");
-  const [minimumChunkSizeState, setMinimumChunkSizeState] = useState(10);
+  const [minimumChunkSizeState, setMinimumChunkSizeState] = useState(6);
   const [faceId, setFaceId] = useState("04d062bc-00ce-4bb0-ace9-76880e3987ec");
 
   useEffect(() => {
