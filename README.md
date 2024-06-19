@@ -46,28 +46,32 @@ sequenceDiagram
 
 ### Terminal 1: (AudioServer)
 
+
+#### Linux
 1. Install FFMPEG
-   
-Linux
 ```bash
 sudo apt install ffmpeg
 ```
 
-Windows
-```bash
-winget install ffmpeg
-```
-
 2. Install python modules
-
-Linux
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Windows
+3. run radio broadcast websocket server
+```bash
+python app.py
+```
+
+#### Windows
+1. Install FFMPEG
+```bash
+winget install ffmpeg
+```
+
+2. Install python modules
 ```bash
 pip install -r requirements.txt
 ```
@@ -84,7 +88,12 @@ Open another terminal
 npm install
 ```
 
-2. Start
+2. Create `.env` and add Simli API Key
+```bash
+NEXT_PUBLIC_SIMLI_API_KEY=YOUR-SIMLI-API-KEY
+```
+
+3. Start
 ```bash
 npm run dev
 ```
